@@ -23,6 +23,7 @@ import { GcliMcpBridge } from './bridge/bridge.js';
 import { createOpenAIRouter } from './bridge/openai.js';
 import express from 'express';
 import { logger } from './utils/logger.js';
+import { getNested } from './utils/helpers.js';
 import { type SecurityPolicy } from './types.js';
 import yargs from 'yargs';
 import { hideBin } from 'yargs/helpers';
@@ -195,21 +196,27 @@ async function startMcpServer() {
     targetDir,
   );
 
-  // REFACTORED: Authentication logic with improved verbosity and error handling.
-  let selectedAuthType = settings.merged.selectedAuthType;
+  // Check the new location (oauth-personal)
+  const newAuthType = getNested(settings.merged, ['security', 'auth', 'selectedType']) as string | undefined;
+  // Check the old location
+  const oldAuthType = settings.merged.selectedAuthType;
+  let selectedAuthType: AuthType | undefined = oldAuthType;
   let authReason = '';
 
-  if (selectedAuthType) {
-    authReason = ' (from .gemini/settings.json)';
+  if (oldAuthType) {
+    authReason = ' (from settings.json "selectedAuthType")';
+  } else if (newAuthType) {
+    //  If new auth key is present, use that value directly
+    selectedAuthType = newAuthType as AuthType;
+    authReason = ` (from settings.json "security.auth.selectedType": ${newAuthType})`;
   } else if (process.env.GEMINI_API_KEY) {
     selectedAuthType = AuthType.USE_GEMINI;
     authReason = ' (fallback to GEMINI_API_KEY environment variable)';
   } else {
-    // NEW: More descriptive error message for missing auth.
     logger.error(
       'Authentication missing: Please complete the authentication setup in gemini-cli first, or set the GEMINI_API_KEY environment variable.\n' +
-        'This program accesses Gemini services via gemini-cli and does not run standalone.\n' +
-        'Check the gemini-cli documentation for setup instructions.',
+      'This program accesses Gemini services via gemini-cli and does not run standalone.\n' +
+      'Check the gemini-cli documentation for setup instructions.',
     );
     process.exit(1);
   }
@@ -221,7 +228,7 @@ async function startMcpServer() {
 
   try {
     await config.initialize();
-    await config.refreshAuth(selectedAuthType);
+    await config.refreshAuth(selectedAuthType!);
     // NEW: Success logging.
     logger.info(`✅ Authentication successful!`);
     // The original debug log is still useful.
